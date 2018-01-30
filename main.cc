@@ -15,32 +15,62 @@ static void convert_segfault_to_runtime_error(int sig, siginfo_t *dont_care, voi
     throw std::runtime_error("");
 }
 
-void prevent_segfault() {
+using sa_sigaction_t = void (*)(int, siginfo_t *, void *);
+
+void register_signal_hendler(int signal, sa_sigaction_t sigaction_callback) {
     struct sigaction sa;
 
     sigemptyset(&sa.sa_mask);
 
     sa.sa_flags = SA_NODEFER;
-    sa.sa_sigaction = convert_segfault_to_runtime_error;
+    sa.sa_sigaction = sigaction_callback;
 
-    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(signal, &sa, NULL);
+}
+
+class reload_library : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
+static void convert_sigterm_to_reload_library(int sig, siginfo_t *dont_care, void *dont_care_either) {
+    throw reload_library("");
+}
+
+void prevent_segfault() {
+    register_signal_hendler(SIGSEGV, convert_segfault_to_runtime_error);
+}
+
+void continue_loop_on_sigterm() {
+    register_signal_hendler(SIGTERM, convert_sigterm_to_reload_library);
 }
 
 int main() {
     const auto commonData = initCommonData();
     CommonResult commonResult;
-    std::vector<std::string> libs = {"./libqm1.so", "./libqm2.so"};
+
+    const char * lib = "./libqm-cont-load.so";
+
     prevent_segfault();
-    for (const auto &lib : libs) {
-        auto dl = dlopen(lib.c_str(), RTLD_LAZY);
+    continue_loop_on_sigterm();
+
+    bool isRunning = true;
+
+    while(isRunning) {
+        auto dl = dlopen(lib, RTLD_LAZY);
         entry_point_t entryPoint = (entry_point_t) dlsym(dl, "entry_point");
         try {
             entryPoint(&commonData, &commonResult);
             std::cout << commonResult.output << '\n';
-        } catch (...) {
-            std::cout << "exception caught" << '\n';
+        } catch (reload_library &) {
+            std::cout << "receiving signal - interrupting execution - reloading lib" << '\n';
+        } catch (std::runtime_error &runtimeError) {
+            std::cout << "exception caught: " << runtimeError.what() << '\n';
+            if (getchar() == 'x'){
+                isRunning = false;
+            }
         }
         dlclose(dl);
     }
+
     return 0;
 }
