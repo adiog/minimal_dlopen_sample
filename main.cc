@@ -28,12 +28,10 @@ void register_signal_hendler(int signal, sa_sigaction_t sigaction_callback) {
     sigaction(signal, &sa, NULL);
 }
 
-class reload_library : std::runtime_error {
-    using std::runtime_error::runtime_error;
-};
+class reload_library {};
 
 static void convert_sigterm_to_reload_library(int sig, siginfo_t *dont_care, void *dont_care_either) {
-    throw reload_library("");
+    throw reload_library();
 }
 
 void prevent_segfault() {
@@ -48,26 +46,29 @@ int main() {
     const auto commonData = initCommonData();
     CommonResult commonResult;
 
-    const char * lib = "./libqm-cont-load.so";
+    const char *lib = "./libqm-cont-load.so";
 
     prevent_segfault();
     continue_loop_on_sigterm();
 
     bool isRunning = true;
 
-    while(isRunning) {
+    while (isRunning) {
         auto dl = dlopen(lib, RTLD_LAZY);
         entry_point_t entryPoint = (entry_point_t) dlsym(dl, "entry_point");
         try {
-            entryPoint(&commonData, &commonResult);
-            std::cout << commonResult.output << '\n';
-        } catch (reload_library &) {
-            std::cout << "receiving signal - interrupting execution - reloading lib" << '\n';
-        } catch (std::runtime_error &runtimeError) {
-            std::cout << "exception caught: " << runtimeError.what() << '\n';
-            if (getchar() == 'x'){
+            try {
+                entryPoint(&commonData, &commonResult);
+                std::cout << commonResult.output << '\n';
+            } catch (std::runtime_error &runtimeError) {
+                std::cout << "exception caught: " << runtimeError.what() << '\n';
+            }
+            std::cout << "finished execution; press x to stop, or any other key to continue" << '\n';
+            if (getchar() == 'x') {
                 isRunning = false;
             }
+        } catch (reload_library &) {
+            std::cout << "receiving signal - interrupting execution - reloading lib" << '\n';
         }
         dlclose(dl);
     }
