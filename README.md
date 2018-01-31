@@ -7,3 +7,5 @@ cmake ..
 make
 ./CommonData
 ```
+
+The branch continous-loading implements the simple signal-based method to continuously reload library during development for each build as cmake post-build custom task. Nothing fancy, but can be used efficiently within CLion IDE (also with debugger).
